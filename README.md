@@ -1,6 +1,6 @@
 ## Hi there 👋
 
-Hi!
+Hello!
 <!--
 **Weedy233/Weedy233** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
 
