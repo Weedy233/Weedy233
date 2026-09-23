@@ -46,9 +46,6 @@ jobs:
           fail_on_error: true
           options: username=${{ github.repository_owner }}&repo=${{ secrets.GH_STATS_TARGET_REPOS }}&include_all_commits=true&hide=prs,issues,stars,contribs&show=prs_authored,prs_commented,prs_reviewed,issues_authored,issues_commented&hide_rank=true&hide_border=true&custom_title=Selected%20Repository%20Contributions
 
-      - name: Normalize cards to 16:9
-        run: npx tsx scripts/normalize-16x9.mts profile/stats.svg profile/top-langs.svg profile/selected-work.svg
-
       - name: Commit generated cards
         run: |
           git config user.name "github-actions[bot]"

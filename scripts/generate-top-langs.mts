@@ -13,7 +13,7 @@
  *
  * Usage: node generate-top-langs.ts <token> <username> <output.svg>
  */
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -129,15 +129,38 @@ for (const [name, size] of [...agg.entries()].sort((a, b) => b[1] - a[1])) {
   langs[name] = { name, color: COLORS[name] || FALLBACK, size };
 }
 
-// render at the 16:9 canvas width; scripts/normalize-16x9.mts sets the final
-// canvas height afterwards
+// 5) match dimensions of profile/stats.svg so the two cards align.
+// Width must be set at render time (inner layout depends on it); height is
+// patched afterwards since compact layout is top-aligned with bottom padding.
+let cardWidth: number | undefined;
+let targetHeight: string | undefined;
+try {
+  const statsSvg = await readFile(path.resolve(path.dirname(OUT), "stats.svg"), "utf8");
+  const m = statsSvg.match(/<svg[^>]*?width="([\d.]+)"[^>]*?height="([\d.]+)"/);
+  if (m) {
+    cardWidth = Number(m[1]);
+    targetHeight = m[2];
+  }
+} catch {
+  // stats.svg not found; keep native size
+}
+
 let svg = renderTopLanguages(langs, {
   layout: "compact",
   langs_count: 8,
   hide_border: true,
   custom_title: "Most Used Languages",
-  card_width: 480,
+  ...(cardWidth ? { card_width: cardWidth } : {}),
 });
+if (targetHeight) {
+  const native = svg.match(/<svg[^>]*?width="([\d.]+)"[^>]*?height="([\d.]+)"[^>]*?viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  if (native) {
+    const [, w, , , vbH] = native;
+    svg = svg
+      .replace(`height="${native[2]}"`, `height="${targetHeight}"`)
+      .replace(`viewBox="0 0 ${w} ${vbH}"`, `viewBox="0 0 ${w} ${targetHeight}"`);
+  }
+}
 
 await writeFile(OUT, svg, "utf8");
 const counts = [...agg.values()].reduce((a, b) => a + b, 0);
