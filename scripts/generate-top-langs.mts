@@ -112,11 +112,32 @@ for (const full of INCLUDE_ORG) {
 
 if (agg.size === 0) throw new Error("no language data aggregated");
 
-// 4) render with the github-readme-stats card renderer
-const corePkg = path.resolve(
+// 4) render with the github-readme-stats card renderer.
+// The compact layout hardcodes 2 columns (chunkArray(langs, n/2), column gap
+// min 150px). Patch the installed build in place for a 3-column layout, then
+// render 12 languages and fix the card height (formula still assumes 2 cols).
+const coreDir = path.resolve(
   "node_modules", "@stats-organization", "github-readme-stats-core",
-  "build", "cards", "top-languages.js",
 );
+const corePkg = path.resolve(coreDir, "build", "cards", "top-languages.js");
+
+const LANGS_SHOWN = 12;
+const COLS = 3;
+const nativeH = 90 + Math.round(LANGS_SHOWN / 2) * 25;    // renderer's 2-col formula
+const layoutH = 90 + Math.round(LANGS_SHOWN / COLS) * 25; // actual 3-col content height
+
+let coreSrc = await readFile(corePkg, "utf8");
+if (!coreSrc.includes("Math.ceil(langs.length / 3)")) {
+  // only the column count needs patching: the built-in column gap logic
+  // (maxGap = 20 + measureText(longest label)) already exceeds any column's
+  // text width, so 3 columns fit without overlap.
+  coreSrc = coreSrc.replace(
+    "chunkArray(langs, langs.length / 2)",
+    "chunkArray(langs, Math.ceil(langs.length / 3))",
+  );
+  await writeFile(corePkg, coreSrc, "utf8");
+}
+
 const { renderTopLanguages } = (await import(pathToFileURL(corePkg).href)) as {
   renderTopLanguages: (
     langs: Record<string, { name: string; color: string; size: number }>,
@@ -125,7 +146,7 @@ const { renderTopLanguages } = (await import(pathToFileURL(corePkg).href)) as {
 };
 
 const langs: Record<string, { name: string; color: string; size: number }> = {};
-for (const [name, size] of [...agg.entries()].sort((a, b) => b[1] - a[1])) {
+for (const [name, size] of [...agg.entries()].sort((a, b) => b[1] - a[1]).slice(0, LANGS_SHOWN)) {
   langs[name] = { name, color: COLORS[name] || FALLBACK, size };
 }
 
@@ -147,20 +168,29 @@ try {
 
 let svg = renderTopLanguages(langs, {
   layout: "compact",
-  langs_count: 8,
+  langs_count: LANGS_SHOWN,
   hide_border: true,
+  disable_animations: true,
   custom_title: "Most Used Languages",
   ...(cardWidth ? { card_width: cardWidth } : {}),
 });
-if (targetHeight) {
-  const native = svg.match(/<svg[^>]*?width="([\d.]+)"[^>]*?height="([\d.]+)"[^>]*?viewBox="0 0 ([\d.]+) ([\d.]+)"/);
-  if (native) {
-    const [, w, , , vbH] = native;
-    svg = svg
-      .replace(`height="${native[2]}"`, `height="${targetHeight}"`)
-      .replace(`viewBox="0 0 ${w} ${vbH}"`, `viewBox="0 0 ${w} ${targetHeight}"`);
-  }
+
+// Remove the stagger fade-in CSS: it starts at opacity 0 and relies on CSS
+// animations, so in viewers that don't run SVG animations (image previews,
+// some README renderers) the language items would stay invisible.
+const stag = svg.indexOf(".stagger {");
+if (stag !== -1) {
+  const close = svg.indexOf("}", stag);
+  if (close !== -1) svg = svg.slice(0, stag) + svg.slice(close + 1);
 }
+// header also uses a fade-in animation; strip the property for static viewers
+svg = svg.replace("animation: fadeInAnimation 0.8s ease-in-out forwards;", "");
+
+// shrink to the real 3-column height; grow to stats.svg height to align cards
+const finalH = Math.max(layoutH, targetHeight ? Number(targetHeight) : 0);
+svg = svg
+  .replace(`height="${nativeH}"`, `height="${finalH}"`)
+  .replace(/viewBox="0 0 ([\d.]+) \d+"/, (m, w: string) => `viewBox="0 0 ${w} ${finalH}"`);
 
 await writeFile(OUT, svg, "utf8");
 const counts = [...agg.values()].reduce((a, b) => a + b, 0);
